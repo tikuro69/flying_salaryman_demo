@@ -11,3 +11,7 @@ This is an early demo focused on:
 ## Status
 
 Prototype / demo version.
+
+## Demo
+
+https://tikuro69.github.io/flying_salaryman_demo/
