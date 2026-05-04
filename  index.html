@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Flying Salaryman Demo</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: skyblue;
+    }
+
+    #info {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      color: white;
+      font-family: sans-serif;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px 12px;
+      border-radius: 8px;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+<div id="info">Arrow keys: fly / move</div>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0x87ceeb, 20, 150);
+
+const camera = new THREE.PerspectiveCamera(
+  70,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// light
+const light = new THREE.DirectionalLight(0xffffff, 1.2);
+light.position.set(5, 10, 7);
+scene.add(light);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambient);
+
+// ground
+const groundGeo = new THREE.PlaneGeometry(500, 500);
+const groundMat = new THREE.MeshLambertMaterial({ color: 0x66aa66 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -8;
+scene.add(ground);
+
+// materials
+const suitMat = new THREE.MeshLambertMaterial({ color: 0x111122 });
+const skinMat = new THREE.MeshLambertMaterial({ color: 0xffcc99 });
+const tieMat = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
+const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const buildingMat = new THREE.MeshLambertMaterial({ color: 0x667788 });
+const birdMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+
+// --------------------------------------------------
+// flight rig
+// --------------------------------------------------
+// flightRig: 位置と進行方向を担当
+// man: サラリーマンの見た目と飛行ポーズを担当
+
+const flightRig = new THREE.Group();
+scene.add(flightRig);
+
+const man = new THREE.Group();
+flightRig.add(man);
+
+// body
+const body = new THREE.Mesh(
+  new THREE.BoxGeometry(1.0, 1.8, 0.45),
+  suitMat
+);
+body.position.y = 0;
+man.add(body);
+
+// head
+const head = new THREE.Mesh(
+  new THREE.SphereGeometry(0.38, 24, 24),
+  skinMat
+);
+head.position.y = 1.25;
+man.add(head);
+
+// tie
+const tie = new THREE.Mesh(
+  new THREE.BoxGeometry(0.18, 0.7, 0.06),
+  tieMat
+);
+tie.position.set(0, 0.35, -0.26);
+man.add(tie);
+
+// arms with pivots
+const leftArmPivot = new THREE.Group();
+leftArmPivot.position.set(-0.55, 0.55, 0);
+man.add(leftArmPivot);
+
+const leftArm = new THREE.Mesh(
+  new THREE.BoxGeometry(1.35, 0.18, 0.18),
+  suitMat
+);
+leftArm.position.x = -0.68;
+leftArmPivot.add(leftArm);
+
+const rightArmPivot = new THREE.Group();
+rightArmPivot.position.set(0.55, 0.55, 0);
+man.add(rightArmPivot);
+
+const rightArm = new THREE.Mesh(
+  new THREE.BoxGeometry(1.35, 0.18, 0.18),
+  suitMat
+);
+rightArm.position.x = 0.68;
+rightArmPivot.add(rightArm);
+
+// legs with pivots
+const leftLegPivot = new THREE.Group();
+leftLegPivot.position.set(-0.25, -0.9, 0);
+man.add(leftLegPivot);
+
+const leftLeg = new THREE.Mesh(
+  new THREE.BoxGeometry(0.25, 1.15, 0.25),
+  suitMat
+);
+leftLeg.position.y = -0.58;
+leftLegPivot.add(leftLeg);
+
+const rightLegPivot = new THREE.Group();
+rightLegPivot.position.set(0.25, -0.9, 0);
+man.add(rightLegPivot);
+
+const rightLeg = new THREE.Mesh(
+  new THREE.BoxGeometry(0.25, 1.15, 0.25),
+  suitMat
+);
+rightLeg.position.y = -0.58;
+rightLegPivot.add(rightLeg);
+
+// initial position
+flightRig.position.set(0, -6, 0);
+
+// --------------------------------------------------
+// clouds
+// --------------------------------------------------
+
+const clouds = [];
+
+function createCloud(x, y, z) {
+  const cloud = new THREE.Group();
+
+  for (let i = 0; i < 4; i++) {
+    const puff = new THREE.Mesh(
+      new THREE.SphereGeometry(0.7 + Math.random() * 0.45, 16, 16),
+      cloudMat
+    );
+    puff.position.set(i * 0.65, Math.random() * 0.25, Math.random() * 0.25);
+    cloud.add(puff);
+  }
+
+  cloud.position.set(x, y, z);
+  scene.add(cloud);
+  clouds.push(cloud);
+}
+
+for (let i = 0; i < 24; i++) {
+  createCloud(
+    Math.random() * 90 - 45,
+    Math.random() * 24 + 1,
+    Math.random() * -150
+  );
+}
+
+// --------------------------------------------------
+// city
+// --------------------------------------------------
+
+const buildings = [];
+
+for (let i = 0; i < 80; i++) {
+  const h = Math.random() * 12 + 3;
+
+  const b = new THREE.Mesh(
+    new THREE.BoxGeometry(2, h, 2),
+    buildingMat
+  );
+
+  b.position.set(
+    Math.random() * 110 - 55,
+    -8 + h / 2,
+    Math.random() * -150
+  );
+
+  scene.add(b);
+  buildings.push(b);
+}
+
+// --------------------------------------------------
+// birds
+// --------------------------------------------------
+
+const birds = [];
+
+function createBird(x, y, z) {
+  const bird = new THREE.Group();
+
+  const leftWing = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.06, 0.06),
+    birdMat
+  );
+  leftWing.rotation.z = 0.35;
+  leftWing.position.x = -0.35;
+  bird.add(leftWing);
+
+  const rightWing = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.06, 0.06),
+    birdMat
+  );
+  rightWing.rotation.z = -0.35;
+  rightWing.position.x = 0.35;
+  bird.add(rightWing);
+
+  bird.position.set(x, y, z);
+  scene.add(bird);
+  birds.push(bird);
+}
+
+for (let i = 0; i < 10; i++) {
+  createBird(
+    Math.random() * 70 - 35,
+    Math.random() * 20 + 4,
+    Math.random() * -140
+  );
+}
+
+// --------------------------------------------------
+// controls
+// --------------------------------------------------
+
+const keys = {};
+
+window.addEventListener("keydown", (e) => {
+  keys[e.key] = true;
+});
+
+window.addEventListener("keyup", (e) => {
+  keys[e.key] = false;
+});
+
+// --------------------------------------------------
+// helpers
+// --------------------------------------------------
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+// --------------------------------------------------
+// pose
+// --------------------------------------------------
+
+function setStandingPose() {
+  man.rotation.x = 0;
+  man.rotation.y = 0;
+  man.rotation.z = 0;
+
+  leftArmPivot.rotation.set(0, 0, 0);
+  rightArmPivot.rotation.set(0, 0, 0);
+
+  leftLegPivot.rotation.set(0, 0, 0);
+  rightLegPivot.rotation.set(0, 0, 0);
+}
+
+function setFlyingPose(floatMotion = 0, headDiveValue = 0, bodyDiveValue = 0, legLagValue = 0, kneeLagValue = 0) {
+  // サラリーマン本体の飛行姿勢。
+  //
+  // 下降時の順番：
+  // 1. 頭が先に下を向く
+  // 2. 胴体が少し遅れて傾く
+  // 3. 足がさらに遅れてついてくる
+  // 4. 下降が終わると、それぞれ遅れて戻る
+
+  // 頭・上半身の先行感。
+  // man は体全体なので、ここでは「頭から入る」ように
+  // まず本体の角度を少しだけ強く下げる。
+  man.rotation.x =
+    -1.18
+    - headDiveValue * 0.16
+    - bodyDiveValue * 0.10
+    + floatMotion * 0.025;
+
+  man.rotation.y = 0;
+  man.rotation.z = 0;
+
+  // 腕は胴体より少しだけ遅れて風に流れる。
+  leftArmPivot.rotation.x = 0.10 + bodyDiveValue * 0.08;
+  rightArmPivot.rotation.x = 0.10 + bodyDiveValue * 0.08;
+
+  leftArmPivot.rotation.y = -0.45;
+  rightArmPivot.rotation.y = 0.45;
+
+  leftArmPivot.rotation.z = 0.12 + floatMotion * 0.015;
+  rightArmPivot.rotation.z = -0.12 - floatMotion * 0.015;
+
+  // 足は最後に遅れてついてくる。
+  // 下降時は一瞬、胴体に置いていかれるように後ろへ流れる。
+  const baseLegX = -0.95;
+
+  leftLegPivot.rotation.x = baseLegX - legLagValue * 0.30;
+  rightLegPivot.rotation.x = baseLegX - legLagValue * 0.28;
+
+  // 膝関節の代用。
+  // 実際には一本脚だが、左右差とZ回転で「関節がある」感じを出す。
+  leftLegPivot.rotation.z =
+    0.08
+    + Math.sin(time * 2.8) * 0.025
+    + kneeLagValue * 0.12;
+
+  rightLegPivot.rotation.z =
+    -0.08
+    - Math.sin(time * 2.8) * 0.025
+    - kneeLagValue * 0.12;
+}
+
+// --------------------------------------------------
+// animation
+// --------------------------------------------------
+
+let time = 0;
+
+// 慣性用
+let velX = 0;
+let velY = 0;
+
+// カメラの左右回り込み用。
+// 1 なら右後方、-1 なら左後方。
+let cameraSide = 1;
+let targetCameraSide = 1;
+
+// 脚の遅れ用。
+// 下降時にすぐ反応せず、少し遅れて足がついてくる。
+// 下降時の身体遅延用
+let headDive = 0;   // 頭は速く反応
+let bodyDive = 0;   // 胴体は少し遅れる
+let legLag = 0;     // 足はさらに遅れる
+let kneeLag = 0;    // 膝っぽい遅れ
+
+function animate() {
+  requestAnimationFrame(animate);
+  time += 0.016;
+
+  const floatMotion = Math.sin(time * 2.2);
+
+  // --------------------------------------------------
+  // takeoff
+  // --------------------------------------------------
+
+  if (time < 4.5) {
+    const t = easeOutCubic(time / 4.5);
+
+    flightRig.position.y = lerp(-6, 4, t);
+
+    // 離陸中はまだ進行方向を変えない
+    flightRig.rotation.x = 0;
+    flightRig.rotation.y = 0;
+    flightRig.rotation.z = 0;
+
+    // 立ち姿勢から飛行姿勢へ
+    man.rotation.x = lerp(0, -1.18, t);
+    man.rotation.z = Math.sin(time * 2.0) * 0.015 * t;
+
+    // 腕を広げる
+    leftArmPivot.rotation.y = lerp(0, -0.45, t);
+    rightArmPivot.rotation.y = lerp(0, 0.45, t);
+    leftArmPivot.rotation.z = lerp(0, 0.12, t);
+    rightArmPivot.rotation.z = lerp(0, -0.12, t);
+
+    // 足を後ろへ流す
+    leftLegPivot.rotation.x = lerp(0, -1.35, t);
+    rightLegPivot.rotation.x = lerp(0, -1.35, t);
+    leftLegPivot.rotation.z = lerp(0, 0.08, t);
+    rightLegPivot.rotation.z = lerp(0, -0.08, t);
+
+  } else {
+    // --------------------------------------------------
+    // input
+    // --------------------------------------------------
+
+    let inputX = 0;
+    let inputY = 0;
+
+    if (keys["ArrowLeft"]) inputX -= 1;
+    if (keys["ArrowRight"]) inputX += 1;
+    if (keys["ArrowUp"]) inputY += 1;
+    if (keys["ArrowDown"]) inputY -= 1;
+
+    // ゆっくり加速・減速する
+    velX = lerp(velX, inputX * 0.16, 0.08);
+    velY = lerp(velY, inputY * 0.16, 0.08);
+
+    // 位置更新
+    flightRig.position.x += velX;
+    flightRig.position.y += velY;
+
+    flightRig.position.x = clamp(flightRig.position.x, -28, 28);
+    flightRig.position.y = clamp(flightRig.position.y, -2, 26);
+
+    // 少し前進している想定。
+    // 実際の z 位置は変えず、雲や街を流して前進感を出す。
+    const forwardSpeed = 0.24;
+
+    // 進行方向ベクトル。
+    // この元コードでは、前方を -Z として扱う。
+    const dir = new THREE.Vector3(velX, velY, -forwardSpeed).normalize();
+
+    // 左右旋回
+    const targetYaw = Math.atan2(-dir.x, -dir.z);
+
+    // 上下方向。
+    // ArrowDown で velY が負になり、機首が下がる。
+    const targetPitch = Math.atan2(
+      dir.y,
+      Math.sqrt(dir.x * dir.x + dir.z * dir.z)
+    );
+
+    // 左右移動時のバンク
+    const targetRoll = -velX * 1.9;
+
+    // flightRig を進行方向へ向ける
+    flightRig.rotation.y = lerp(flightRig.rotation.y, targetYaw, 0.08);
+    flightRig.rotation.x = lerp(flightRig.rotation.x, targetPitch, 0.08);
+    flightRig.rotation.z = lerp(flightRig.rotation.z, targetRoll, 0.08);
+
+        // 上下移動の強さを 0〜1 に変換
+        const descendAmount = clamp(-velY / 0.16, 0, 1);
+        const ascendAmount = clamp(velY / 0.16, 0, 1);
+
+        // --------------------------------------------------
+        // delayed body chain
+        // --------------------------------------------------
+        // 頭は速く反応する
+        headDive = lerp(headDive, descendAmount, 0.18);
+
+        // 胴体は少し遅れる
+        bodyDive = lerp(bodyDive, descendAmount, 0.08);
+
+        // 足はさらに遅れる
+        legLag = lerp(legLag, descendAmount, 0.035);
+
+        // 膝っぽい動きは足より少しだけ遅い
+        kneeLag = lerp(kneeLag, descendAmount, 0.028);
+
+        // 上昇時は、足を少し戻して伸びる感じにする
+        const ascentStretch = ascendAmount * 0.18;
+
+        // 飛行姿勢を反映
+        setFlyingPose(
+        floatMotion,
+        headDive,
+        bodyDive,
+        Math.max(0, legLag - ascentStretch),
+        kneeLag
+        );
+  }
+
+  // --------------------------------------------------
+  // clouds move toward camera
+  // --------------------------------------------------
+
+  for (const cloud of clouds) {
+    cloud.position.z += 0.30;
+
+    if (cloud.position.z > 25) {
+      cloud.position.z = -150;
+      cloud.position.x = Math.random() * 90 - 45;
+      cloud.position.y = Math.random() * 24 + 1;
+    }
+  }
+
+  // --------------------------------------------------
+  // city moves slowly
+  // --------------------------------------------------
+
+  for (const b of buildings) {
+    b.position.z += 0.10;
+
+    if (b.position.z > 30) {
+      const h = Math.random() * 12 + 3;
+      b.geometry.dispose();
+      b.geometry = new THREE.BoxGeometry(2, h, 2);
+
+      b.position.x = Math.random() * 110 - 55;
+      b.position.y = -8 + h / 2;
+      b.position.z = -150;
+    }
+  }
+
+  // --------------------------------------------------
+  // birds
+  // --------------------------------------------------
+
+  for (const bird of birds) {
+    bird.position.x += 0.12;
+    bird.position.z += 0.18;
+    bird.rotation.z = Math.sin(time * 8 + bird.position.x) * 0.18;
+
+    if (bird.position.x > 42 || bird.position.z > 25) {
+      bird.position.x = -42;
+      bird.position.y = Math.random() * 20 + 4;
+      bird.position.z = Math.random() * -140;
+    }
+  }
+
+  // --------------------------------------------------
+  // camera
+  // --------------------------------------------------
+
+  // 右へ移動している時は左後方から、
+  // 左へ移動している時は右後方から見る。
+  // 真後ろにならないよう、常に X 方向のオフセットを残す。
+  if (time >= 4.5) {
+    if (velX > 0.025) {
+      targetCameraSide = -1;
+    } else if (velX < -0.025) {
+      targetCameraSide = 1;
+    }
+
+    cameraSide = lerp(cameraSide, targetCameraSide, 0.035);
+  }
+
+  const rearDistance = 7.5;
+  const sideDistance = 3.6;
+
+  const cameraTargetX = flightRig.position.x + cameraSide * sideDistance;
+  const cameraTargetY = flightRig.position.y + 2.2;
+  const cameraTargetZ = flightRig.position.z + rearDistance;
+
+  camera.position.x += (cameraTargetX - camera.position.x) * 0.045;
+  camera.position.y += (cameraTargetY - camera.position.y) * 0.045;
+  camera.position.z += (cameraTargetZ - camera.position.z) * 0.045;
+
+  // 視線は少し前方へ。
+  // これで「真後ろから見ている」感じを避ける。
+  camera.lookAt(
+    flightRig.position.x + velX * 8.0,
+    flightRig.position.y - 0.6 + velY * 2.0,
+    flightRig.position.z - 5.5
+  );
+
+  renderer.render(scene, camera);
+}
+
+setStandingPose();
+animate();
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
