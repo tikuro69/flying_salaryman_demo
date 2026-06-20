@@ -21,10 +21,48 @@
       border-radius: 8px;
       user-select: none;
     }
+
+    #daysOffCounter {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      color: white;
+      font-family: sans-serif;
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.28);
+      padding: 8px 12px;
+      border-radius: 8px;
+      user-select: none;
+    }
+
+    #statusMessage {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-family: sans-serif;
+      font-size: clamp(28px, 5vw, 58px);
+      font-weight: 800;
+      line-height: 1.1;
+      text-align: center;
+      text-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+      white-space: pre-line;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.6s ease;
+      user-select: none;
+    }
+
+    #statusMessage.visible {
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
 <div id="info">Arrow keys: fly / move</div>
+<div id="daysOffCounter">Days Off: 0 / 10</div>
+<div id="statusMessage"></div>
 
 <script type="module">
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
@@ -67,6 +105,252 @@ const tieMat = new THREE.MeshLambertMaterial({ color: 0xcc0000 });
 const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
 const buildingMat = new THREE.MeshLambertMaterial({ color: 0x667788 });
 const birdMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+buildingMat.transparent = true;
+
+// --------------------------------------------------
+// sea ending scene
+// --------------------------------------------------
+
+const seaMat = new THREE.MeshLambertMaterial({
+  color: 0x1e88c8,
+  transparent: true,
+  opacity: 0
+});
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(700, 420), seaMat);
+sea.rotation.x = -Math.PI / 2;
+sea.position.set(0, -7.9, -170);
+scene.add(sea);
+
+const horizonMat = new THREE.MeshBasicMaterial({
+  color: 0xf4fbff,
+  transparent: true,
+  opacity: 0
+});
+const horizon = new THREE.Mesh(new THREE.PlaneGeometry(520, 0.35), horizonMat);
+horizon.position.set(0, 5.4, -210);
+scene.add(horizon);
+
+const daysOffCounter = document.getElementById("daysOffCounter");
+const statusMessage = document.getElementById("statusMessage");
+
+// --------------------------------------------------
+// DAY OFF game state
+// --------------------------------------------------
+
+const DAYS_OFF_GOAL = 10;
+const MAX_DAY_OFF_CARDS = 5;
+const dayOffCards = [];
+const dayOffTexture = createDayOffTexture();
+const cardGlowMat = new THREE.MeshBasicMaterial({
+  color: 0xffffaa,
+  transparent: true,
+  opacity: 0.0,
+  side: THREE.DoubleSide
+});
+
+let gameState = "playing";
+let daysOffCollected = 0;
+let nextCardSpawnAt = 5.0;
+let autopilotStartedAt = 0;
+
+function updateDaysOffCounter() {
+  daysOffCounter.textContent = `Days Off: ${daysOffCollected} / ${DAYS_OFF_GOAL}`;
+}
+
+function setStatusMessage(text, visible = true) {
+  statusMessage.textContent = text;
+  statusMessage.classList.toggle("visible", visible);
+}
+
+function createDayOffTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 320;
+
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#1d3557";
+  ctx.lineWidth = 18;
+  ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
+  ctx.fillStyle = "#1d3557";
+  ctx.font = "bold 82px Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("DAY OFF", canvas.width / 2, canvas.height / 2);
+  ctx.fillStyle = "#e63946";
+  ctx.font = "bold 26px Arial, sans-serif";
+  ctx.fillText("PAID LEAVE", canvas.width / 2, canvas.height / 2 + 82);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function createDayOffCard() {
+  const card = new THREE.Group();
+  const cardMat = new THREE.MeshBasicMaterial({
+    map: dayOffTexture,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 1
+  });
+
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 1.9), cardMat);
+  card.add(face);
+
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.35, 2.18), cardGlowMat.clone());
+  glow.position.z = -0.02;
+  card.add(glow);
+
+  card.userData = {
+    face,
+    glow,
+    collected: false,
+    collectTime: 0,
+    spinOffset: Math.random() * Math.PI * 2,
+    floatOffset: Math.random() * Math.PI * 2
+  };
+
+  resetDayOffCard(card);
+  scene.add(card);
+  dayOffCards.push(card);
+}
+
+function resetDayOffCard(card) {
+  card.position.set(
+    flightRig.position.x + Math.random() * 24 - 12,
+    clamp(flightRig.position.y + Math.random() * 12 - 4, 1, 22),
+    -55 - Math.random() * 70
+  );
+  card.rotation.set(
+    Math.random() * 0.2 - 0.1,
+    Math.random() * 0.5 - 0.25,
+    Math.random() * 0.2 - 0.1
+  );
+  card.scale.set(1, 1, 1);
+  card.visible = true;
+  card.userData.collected = false;
+  card.userData.collectTime = 0;
+  card.userData.face.material.opacity = 1;
+  card.userData.glow.material.opacity = 0.0;
+}
+
+function spawnDayOffCards() {
+  if (gameState !== "playing" || time < 4.5 || time < nextCardSpawnAt) return;
+
+  if (dayOffCards.length < MAX_DAY_OFF_CARDS) {
+    createDayOffCard();
+  }
+
+  nextCardSpawnAt = time + 1.0 + Math.random() * 1.4;
+}
+
+function updateDayOffCards() {
+  for (let i = dayOffCards.length - 1; i >= 0; i--) {
+    const card = dayOffCards[i];
+    const data = card.userData;
+
+    if (data.collected) {
+      data.collectTime += 0.016;
+      const pop = clamp(data.collectTime / 0.35, 0, 1);
+      const scale = 1 + pop * 0.9;
+
+      card.scale.set(scale, scale, scale);
+      card.rotation.z += 0.22;
+      data.face.material.opacity = 1 - pop;
+      data.glow.material.opacity = 0.55 * (1 - pop);
+
+      if (pop >= 1) {
+        scene.remove(card);
+        data.face.geometry.dispose();
+        data.face.material.dispose();
+        data.glow.geometry.dispose();
+        data.glow.material.dispose();
+        dayOffCards.splice(i, 1);
+      }
+      continue;
+    }
+
+    if (gameState !== "playing") {
+      card.position.z += 0.34;
+      data.face.material.opacity = lerp(data.face.material.opacity, 0, 0.08);
+      data.glow.material.opacity = 0;
+
+      if (data.face.material.opacity < 0.05) {
+        scene.remove(card);
+        data.face.geometry.dispose();
+        data.face.material.dispose();
+        data.glow.geometry.dispose();
+        data.glow.material.dispose();
+        dayOffCards.splice(i, 1);
+      }
+      continue;
+    }
+
+    card.position.z += 0.32;
+    card.rotation.y = Math.sin(time * 1.8 + data.spinOffset) * 0.35;
+    card.rotation.z = Math.sin(time * 1.2 + data.spinOffset) * 0.08;
+    card.position.y += Math.sin(time * 2.4 + data.floatOffset) * 0.012;
+
+    if (card.position.distanceTo(flightRig.position) < 2.0 && gameState === "playing") {
+      collectDayOffCard(card);
+      continue;
+    }
+
+    if (card.position.z > 24) {
+      resetDayOffCard(card);
+    }
+  }
+}
+
+function collectDayOffCard(card) {
+  if (card.userData.collected || gameState !== "playing") return;
+
+  card.userData.collected = true;
+  card.userData.collectTime = 0;
+  daysOffCollected += 1;
+  updateDaysOffCounter();
+
+  if (daysOffCollected >= DAYS_OFF_GOAL) {
+    startAutopilot();
+  }
+}
+
+function startAutopilot() {
+  gameState = "autopilot";
+  autopilotStartedAt = time;
+  velX = 0;
+  velY = 0;
+  setStatusMessage("10 DAYS OFF\nAUTOPILOT ENGAGED");
+}
+
+function updateAutopilot(floatMotion) {
+  const elapsed = time - autopilotStartedAt;
+
+  flightRig.position.x = lerp(flightRig.position.x, 0, 0.015);
+  flightRig.position.y = lerp(flightRig.position.y, 23, 0.006);
+  flightRig.position.z -= 0.20 + Math.min(elapsed, 8) * 0.012;
+
+  flightRig.rotation.x = lerp(flightRig.rotation.x, 0.16, 0.02);
+  flightRig.rotation.y = lerp(flightRig.rotation.y, 0, 0.02);
+  flightRig.rotation.z = lerp(flightRig.rotation.z, 0, 0.03);
+
+  headDive = lerp(headDive, 0, 0.06);
+  bodyDive = lerp(bodyDive, 0, 0.06);
+  legLag = lerp(legLag, 0, 0.05);
+  kneeLag = lerp(kneeLag, 0, 0.05);
+  setFlyingPose(floatMotion, headDive, bodyDive, legLag, kneeLag);
+
+  const disappear = clamp((elapsed - 8.0) / 3.5, 0, 1);
+  const scale = lerp(1, 0.12, disappear);
+  flightRig.scale.set(scale, scale, scale);
+
+  if (elapsed > 10.8 && gameState === "autopilot") {
+    gameState = "ending";
+    setStatusMessage("At last, the sea.");
+  }
+}
 
 // --------------------------------------------------
 // flight rig
@@ -402,7 +686,7 @@ function animate() {
     leftLegPivot.rotation.z = lerp(0, 0.08, t);
     rightLegPivot.rotation.z = lerp(0, -0.08, t);
 
-  } else {
+  } else if (gameState === "playing") {
     // --------------------------------------------------
     // input
     // --------------------------------------------------
@@ -482,7 +766,17 @@ function animate() {
         Math.max(0, legLag - ascentStretch),
         kneeLag
         );
+  } else {
+    // DAY OFF 10枚取得後の自動操縦。通常入力はここでは読まない。
+    updateAutopilot(floatMotion);
   }
+
+  // --------------------------------------------------
+  // DAY OFF cards
+  // --------------------------------------------------
+
+  spawnDayOffCards();
+  updateDayOffCards();
 
   // --------------------------------------------------
   // clouds move toward camera
@@ -502,10 +796,26 @@ function animate() {
   // city moves slowly
   // --------------------------------------------------
 
+  const autopilotElapsed = gameState === "playing" ? 0 : time - autopilotStartedAt;
+  const cityFade = gameState === "playing" ? 0 : clamp(autopilotElapsed / 6.5, 0, 1);
+  const seaFade = gameState === "playing" ? 0 : clamp((autopilotElapsed - 1.5) / 5.0, 0, 1);
+
+  buildingMat.opacity = 1 - cityFade;
+  seaMat.opacity = seaFade;
+  horizonMat.opacity = seaFade;
+  groundMat.color.lerp(new THREE.Color(0x2b8cc4), seaFade * 0.02);
+  scene.fog.color.lerp(new THREE.Color(0xbde8ff), seaFade * 0.02);
+
   for (const b of buildings) {
-    b.position.z += 0.10;
+    b.position.z += gameState === "playing" ? 0.10 : 0.18;
+    b.position.y -= cityFade * 0.018;
 
     if (b.position.z > 30) {
+      if (gameState !== "playing") {
+        b.visible = false;
+        continue;
+      }
+
       const h = Math.random() * 12 + 3;
       b.geometry.dispose();
       b.geometry = new THREE.BoxGeometry(2, h, 2);
@@ -539,7 +849,7 @@ function animate() {
   // 右へ移動している時は左後方から、
   // 左へ移動している時は右後方から見る。
   // 真後ろにならないよう、常に X 方向のオフセットを残す。
-  if (time >= 4.5) {
+  if (time >= 4.5 && gameState === "playing") {
     if (velX > 0.025) {
       targetCameraSide = -1;
     } else if (velX < -0.025) {
@@ -549,11 +859,12 @@ function animate() {
     cameraSide = lerp(cameraSide, targetCameraSide, 0.035);
   }
 
-  const rearDistance = 7.5;
-  const sideDistance = 3.6;
+  const autopilotPullback = gameState === "playing" ? 0 : clamp(autopilotElapsed * 1.5, 0, 18);
+  const rearDistance = 7.5 + autopilotPullback;
+  const sideDistance = gameState === "playing" ? 3.6 : lerp(3.6, 1.2, clamp(autopilotElapsed / 7, 0, 1));
 
   const cameraTargetX = flightRig.position.x + cameraSide * sideDistance;
-  const cameraTargetY = flightRig.position.y + 2.2;
+  const cameraTargetY = flightRig.position.y + 2.2 + autopilotPullback * 0.16;
   const cameraTargetZ = flightRig.position.z + rearDistance;
 
   camera.position.x += (cameraTargetX - camera.position.x) * 0.045;
@@ -565,7 +876,7 @@ function animate() {
   camera.lookAt(
     flightRig.position.x + velX * 8.0,
     flightRig.position.y - 0.6 + velY * 2.0,
-    flightRig.position.z - 5.5
+    flightRig.position.z - 5.5 - autopilotPullback * 1.8
   );
 
   renderer.render(scene, camera);
